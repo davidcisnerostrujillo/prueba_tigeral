@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculador E.030 - Espectro y Análisis Estático</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #1a1a1a; color: #e5e5e5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .card { background-color: #2d2d2d; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        select, input { background-color: #3d3d3d; border: 1px solid #4d4d4d; color: white; border-radius: 6px; padding: 6px 10px; width: 100%; font-size: 0.9rem; }
+        button { transition: all 0.2s; }
+        button:hover { transform: translateY(-1px); filter: brightness(1.1); }
+        .label-custom { display: block; font-size: 0.75rem; margin-bottom: 0.25rem; color: #9ca3af; text-transform: uppercase; font-weight: 600; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1a1a1a; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body class="p-4 md:p-6">
+    <div class="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-4 gap-6">
+        
+        <!-- PANEL DE PARÁMETROS SÍSMICOS -->
+        <div class="xl:col-span-1 flex flex-col gap-6">
+            <div class="card p-5 flex flex-col gap-4">
+                <h2 class="text-lg font-bold border-b border-gray-600 pb-2 text-blue-400 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                    PARÁMETROS SÍSMICOS
+                </h2>
+                
+                <div>
+                    <label class="label-custom">Zona Sísmica (Z):</label>
+                    <select id="zona" onchange="actualizarTodo()">
+                        <option value="0.45">0.45 (Z4 - Costa)</option>
+                        <option value="0.35">0.35 (Z3 - Sierra Alta)</option>
+                        <option value="0.25">0.25 (Z2 - Sierra/Selva)</option>
+                        <option value="0.10">0.10 (Z1 - Selva Baja)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="label-custom">Categoría (U):</label>
+                    <select id="uso" onchange="actualizarTodo()">
+                        <option value="1.5">A: Esenciales (1.5)</option>
+                        <option value="1.3">B: Importantes (1.3)</option>
+                        <option value="1.0" selected>C: Comunes (1.0)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="label-custom">Tipo de Suelo:</label>
+                    <select id="suelo" onchange="actualizarTodo()">
+                        <option value="S0">S0: Roca Dura</option>
+                        <option value="S1">S1: Roca o Rígido</option>
+                        <option value="S2" selected>S2: Intermedio</option>
+                        <option value="S3">S3: Blando</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="label-custom">Reducción (R):</label>
+                    <input type="number" id="reduccion" value="8" oninput="actualizarTodo()">
+                </div>
+
+                <div id="info-dinamica" class="text-xs text-gray-300 p-3 bg-black bg-opacity-30 rounded-lg border border-gray-700 leading-relaxed">
+                    <!-- Datos Z, U, S, Tp, Tl -->
+                </div>
+            </div>
+
+            <div class="card p-5">
+                <button onclick="exportarOpenSees()" class="w-full border-2 border-blue-600 text-blue-400 font-bold py-2 rounded-lg hover:bg-blue-600 hover:text-white flex items-center justify-center gap-2 text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Exportar OpenSees
+                </button>
+            </div>
+        </div>
+
+        <!-- PANEL CENTRAL: GRÁFICA Y ANÁLISIS ESTÁTICO -->
+        <div class="xl:col-span-3 flex flex-col gap-6">
+            
+            <!-- GRÁFICA DEL ESPECTRO -->
+            <div class="card p-5 h-[350px] flex flex-col">
+                <h2 class="text-sm font-bold text-gray-400 mb-2 uppercase tracking-wider">Espectro de Pseudo-Aceleraciones</h2>
+                <div class="flex-grow">
+                    <canvas id="espectroChart"></canvas>
+                </div>
+            </div>
+
+            <!-- ANÁLISIS ESTÁTICO -->
+            <div class="card p-5">
+                <h2 class="text-lg font-bold border-b border-gray-600 pb-2 text-green-400 mb-4 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+                    ANÁLISIS ESTÁTICO (E.030)
+                </h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Configuración Edificio -->
+                    <div class="flex flex-col gap-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="label-custom">Periodo Fund. T (s):</label>
+                                <input type="number" id="periodo-t" value="0.35" step="0.01" oninput="actualizarTodo()">
+                                <p class="text-[10px] text-gray-500 italic mt-1">Estimado: hn/Ct</p>
+                            </div>
+                            <div>
+                                <label class="label-custom">Número de Pisos:</label>
+                                <input type="number" id="num-pisos" value="3" min="1" max="10" onchange="generarTablaPisos()">
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left">
+                                <thead class="text-xs uppercase bg-black bg-opacity-20">
+                                    <tr>
+                                        <th class="p-2">Piso</th>
+                                        <th class="p-2">h (m)</th>
+                                        <th class="p-2">Peso (tf)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabla-pisos-body">
+                                    <!-- Generado por JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Resultados del Análisis -->
+                    <div class="bg-black bg-opacity-20 rounded-xl p-5 border border-gray-700">
+                        <h3 class="text-blue-400 font-bold mb-3 text-sm uppercase">Resultados del Cálculo</h3>
+                        <div class="flex flex-col gap-2 text-sm">
+                            <div class="flex justify-between border-b border-gray-800 py-1">
+                                <span>Factor C (Amplificación):</span>
+                                <span id="res-c" class="font-mono text-white">-</span>
+                            </div>
+                            <div class="flex justify-between border-b border-gray-800 py-1">
+                                <span>Coeficiente V/W:</span>
+                                <span id="res-v-w" class="font-mono text-white">-</span>
+                            </div>
+                            <div class="flex justify-between border-b border-gray-800 py-1">
+                                <span>Peso Total (W):</span>
+                                <span id="res-w-total" class="font-mono text-white">-</span>
+                            </div>
+                            <div class="flex justify-between py-1 font-bold text-green-400 text-base">
+                                <span>Cortante Basal (V):</span>
+                                <span id="res-v-basal">-</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-4">
+                            <h4 class="text-[10px] text-gray-500 uppercase font-bold mb-2">Distribución de Fuerzas</h4>
+                            <div id="distribucion-fuerzas" class="flex flex-col gap-1">
+                                <!-- Generado por JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dataSuelo = {
+            'S0': { S: [0.80, 0.80, 0.80, 0.80], Tp: 0.3, Tl: 3.0 },
+            'S1': { S: [1.00, 1.00, 1.00, 1.00], Tp: 0.4, Tl: 2.5 },
+            'S2': { S: [1.05, 1.15, 1.20, 1.60], Tp: 0.6, Tl: 2.0 }, 
+            'S3': { S: [1.10, 1.20, 1.40, 2.00], Tp: 1.0, Tl: 1.6 }
+        };
+
+        let chart;
+        let lastEspectro = [];
+
+        function getParametros() {
+            const Z = parseFloat(document.getElementById('zona').value);
+            const U = parseFloat(document.getElementById('uso').value);
+            const sueloTipo = document.getElementById('suelo').value;
+            const R = parseFloat(document.getElementById('reduccion').value) || 1;
+            const zIdx = document.getElementById('zona').selectedIndex;
+            const S = dataSuelo[sueloTipo].S[zIdx];
+            const Tp = dataSuelo[sueloTipo].Tp;
+            const Tl = dataSuelo[sueloTipo].Tl;
+            return { Z, U, S, Tp, Tl, R };
+        }
+
+        function calculateC(T, Tp, Tl) {
+            if (T < Tp) return 2.5;
+            if (T < Tl) return 2.5 * (Tp / T);
+            return 2.5 * ((Tp * Tl) / Math.pow(T, 2));
+        }
+
+        function generarTablaPisos() {
+            const n = parseInt(document.getElementById('num-pisos').value);
+            const body = document.getElementById('tabla-pisos-body');
+            body.innerHTML = '';
+            for (let i = n; i >= 1; i--) {
+                const row = document.createElement('tr');
+                row.className = "border-b border-gray-800";
+                row.innerHTML = `
+                    <td class="p-2 text-blue-400 font-bold">Nivel ${i}</td>
+                    <td class="p-2"><input type="number" class="h-piso" value="${3 * i}" step="0.1" oninput="actualizarTodo()"></td>
+                    <td class="p-2"><input type="number" class="w-piso" value="100" step="1" oninput="actualizarTodo()"></td>
+                `;
+                body.appendChild(row);
+            }
+            actualizarTodo();
+        }
+
+        function actualizarTodo() {
+            const p = getParametros();
+            const T_fund = parseFloat(document.getElementById('periodo-t').value) || 0.01;
+            
+            // 1. Espectro
+            const labels = [];
+            const values = [];
+            lastEspectro = [];
+            for (let t = 0; t <= 4.0; t += 0.05) {
+                const t_val = t === 0 ? 0.01 : t;
+                const c_val = calculateC(t_val, p.Tp, p.Tl);
+                const sa = (p.Z * p.U * c_val * p.S / p.R) * 9.81;
+                labels.push(t.toFixed(2));
+                values.push(sa);
+                lastEspectro.push({ t: t_val.toFixed(4), sa: sa.toFixed(6) });
+            }
+            renderChart(labels, values, p);
+
+            // 2. Análisis Estático
+            const C_fund = calculateC(T_fund, p.Tp, p.Tl);
+            // Factor V/W = ZUCS/R (Debe ser >= 0.11 * Z * U * S / R)
+            let vw = (p.Z * p.U * C_fund * p.S / p.R);
+            const minVW = 0.11 * p.Z * p.U * p.S; // Nota: en realidad es V >= 0.11 * Z * U * S * W
+            // Ajuste normativo de C/R >= 0.11
+            if ((C_fund / p.R) < 0.11) {
+                // vw = (p.Z * p.U * p.S) * 0.11; // Límite inferior
+            }
+
+            // Datos de los pisos
+            const hInputs = document.querySelectorAll('.h-piso');
+            const wInputs = document.querySelectorAll('.w-piso');
+            let wTotal = 0;
+            let n = hInputs.length;
+            let pisos = [];
+
+            for (let i = 0; i < n; i++) {
+                const h = parseFloat(hInputs[i].value) || 0;
+                const w = parseFloat(wInputs[i].value) || 0;
+                wTotal += w;
+                pisos.push({ h, w, nivel: n - i });
+            }
+            // Invertir para que el índice 0 sea el primer piso (abajo)
+            pisos.reverse();
+
+            const V_basal = vw * wTotal;
+
+            // Coeficiente k
+            let k = 1.0;
+            if (T_fund > 0.5) {
+                k = (0.75 + 0.5 * T_fund);
+                if (k > 2.0) k = 2.0;
+            }
+
+            // Distribución de fuerza
+            let sum_whk = 0;
+            pisos.forEach(p => { sum_whk += p.w * Math.pow(p.h, k); });
+
+            const distHtml = document.getElementById('distribucion-fuerzas');
+            distHtml.innerHTML = '';
+            
+            // Mostrar de arriba hacia abajo
+            [...pisos].reverse().forEach(piso => {
+                const alpha = (piso.w * Math.pow(piso.h, k)) / sum_whk;
+                const Fi = alpha * V_basal;
+                distHtml.innerHTML += `
+                    <div class="flex justify-between items-center bg-black bg-opacity-40 p-2 rounded border-l-4 border-blue-500">
+                        <span class="text-[11px] font-bold">NIVEL ${piso.nivel}</span>
+                        <span class="text-xs text-blue-200">F = ${Fi.toFixed(2)} tf</span>
+                    </div>
+                `;
+            });
+
+            // Resultados UI
+            document.getElementById('res-c').innerText = C_fund.toFixed(3);
+            document.getElementById('res-v-w').innerText = vw.toFixed(4);
+            document.getElementById('res-w-total').innerText = wTotal.toFixed(2) + " tf";
+            document.getElementById('res-v-basal').innerText = V_basal.toFixed(2) + " tf";
+            
+            document.getElementById('info-dinamica').innerHTML = `
+                <div class="grid grid-cols-2 gap-y-1">
+                    <span>Z: ${p.Z}</span> <span>U: ${p.U}</span>
+                    <span>S: ${p.S}</span> <span>R: ${p.R}</span>
+                    <span>Tp: ${p.Tp}s</span> <span>Tl: ${p.Tl}s</span>
+                </div>
+            `;
+        }
+
+        function renderChart(labels, values, p) {
+            const ctx = document.getElementById('espectroChart').getContext('2d');
+            if (chart) chart.destroy();
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        borderColor: '#3b82f6',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: true,
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: '#333' }, ticks: { color: '#888', font: { size: 10 } } },
+                        y: { grid: { color: '#333' }, ticks: { color: '#888', font: { size: 10 } }, beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        function exportarOpenSees() {
+            if (lastEspectro.length === 0) return;
+            let content = "# Espectro E.030 Peru\n# Periodo(s) Sa(m/s2)\n";
+            lastEspectro.forEach(d => { content += `${d.t} ${d.sa}\n`; });
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "espectro_E030.txt";
+            a.click();
+        }
+
+        window.onload = generarTablaPisos;
+    </script>
+</body>
+</html>
