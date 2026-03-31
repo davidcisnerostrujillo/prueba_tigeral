@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analizador de Armaduras 2D - Ultra Zoom</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Fira+Code:wght@400;500&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        .canvas-area { background-color: #ffffff; border-radius: 1rem; border: 2px solid #e2e8f0; position: relative; overflow: hidden; height: 650px; }
+        .tab-active { border-bottom: 2px solid #2563eb; color: #2563eb; }
+        .btn-view.active { background-color: #2563eb; color: white; }
+        input[type="number"] { border: 1px solid #e2e8f0; padding: 4px 8px; border-radius: 6px; width: 100%; font-family: 'Fira Code', monospace; font-size: 0.8rem; }
+        #pdf-template { position: absolute; left: -9999px; width: 800px; background: white; padding: 40px; color: #1e293b; }
+        canvas { display: block; width: 100%; height: 100%; }
+    </style>
+</head>
+<body class="p-4 md:p-6">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-800 tracking-tight">Analizador de Tijerales <span class="text-blue-600 font-extrabold">ULTRA-FIT</span></h1>
+                <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest">SI: Metros | Toneladas-fuerza</p>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="loadExample()" class="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 transition shadow-sm">Cargar Ejemplo</button>
+                <button onclick="exportToPDF()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-semibold hover:bg-slate-900 transition flex items-center gap-2">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    PDF
+                </button>
+                <button onclick="calculate()" class="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-black hover:bg-blue-700 shadow-xl shadow-blue-200 uppercase tracking-tighter">CALCULAR</button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- Panel Lateral -->
+            <div class="lg:col-span-3 space-y-4">
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest">Propiedades</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-[9px] font-bold text-slate-500 mb-1">Módulo E (tf/m²)</label>
+                            <input type="number" id="prop-e" value="21000000">
+                        </div>
+                        <div>
+                            <label class="block text-[9px] font-bold text-slate-500 mb-1">Área A (m²)</label>
+                            <input type="number" id="prop-a" value="0.005" step="0.0001">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="flex bg-slate-50 border-b border-slate-200 text-center">
+                        <button onclick="setTab('nodes')" id="btn-tab-nodes" class="flex-1 py-3 text-[10px] font-black tab-active uppercase">Nodos</button>
+                        <button onclick="setTab('bars')" id="btn-tab-bars" class="flex-1 py-3 text-[10px] font-black text-slate-400 uppercase">Barras</button>
+                        <button onclick="setTab('loads')" id="btn-tab-loads" class="flex-1 py-3 text-[10px] font-black text-slate-400 uppercase">Cargas</button>
+                    </div>
+                    <div class="p-3 max-h-[450px] overflow-y-auto">
+                        <div id="tab-nodes">
+                            <table class="w-full text-[10px]">
+                                <thead class="text-slate-400 border-b"><tr><th class="py-1 text-left">ID</th><th class="text-left">X</th><th class="text-left">Y</th><th class="text-center">Sop.</th><th></th></tr></thead>
+                                <tbody id="body-nodes"></tbody>
+                            </table>
+                            <button onclick="addNode()" class="w-full py-2 bg-slate-50 text-blue-600 font-bold text-[9px] mt-3 rounded hover:bg-blue-50 transition border border-dashed border-blue-200 uppercase">+ Nodo</button>
+                        </div>
+                        <div id="tab-bars" class="hidden">
+                            <table class="w-full text-[10px]">
+                                <thead class="text-slate-400 border-b"><tr><th class="py-1 text-left">ID</th><th class="text-left">N1</th><th class="text-left">N2</th><th></th></tr></thead>
+                                <tbody id="body-bars"></tbody>
+                            </table>
+                            <button onclick="addBar()" class="w-full py-2 bg-slate-50 text-blue-600 font-bold text-[9px] mt-3 rounded hover:bg-blue-50 transition border border-dashed border-blue-200 uppercase">+ Barra</button>
+                        </div>
+                        <div id="tab-loads" class="hidden">
+                            <table class="w-full text-[10px]">
+                                <thead class="text-slate-400 border-b"><tr><th class="py-1 text-left">Nodo</th><th class="text-left">Fx</th><th class="text-left">Fy</th><th></th></tr></thead>
+                                <tbody id="body-loads"></tbody>
+                            </table>
+                            <button onclick="addLoad()" class="w-full py-2 bg-slate-50 text-blue-600 font-bold text-[9px] mt-3 rounded hover:bg-blue-50 transition border border-dashed border-blue-200 uppercase">+ Carga</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gráfico y Resultados -->
+            <div class="lg:col-span-9 space-y-4">
+                <div class="bg-white p-2 rounded-xl border border-slate-200 flex flex-wrap justify-between items-center shadow-sm">
+                    <div class="flex p-1 bg-slate-100 rounded-lg gap-1">
+                        <button onclick="setView('geometry')" id="v-geometry" class="btn-view active px-4 py-2 rounded-md text-[10px] font-bold uppercase transition">Geometría</button>
+                        <button onclick="setView('deflection')" id="v-deflection" class="btn-view px-4 py-2 rounded-md text-[10px] font-bold uppercase transition">Deformada</button>
+                        <button onclick="setView('forces')" id="v-forces" class="btn-view px-4 py-2 rounded-md text-[10px] font-bold uppercase transition">Esfuerzos</button>
+                        <button onclick="setView('reactions')" id="v-reactions" class="btn-view px-4 py-2 rounded-md text-[10px] font-bold uppercase transition">Reacciones</button>
+                    </div>
+                    <div class="flex items-center gap-4 px-3">
+                        <div class="flex flex-col">
+                            <span class="text-[8px] font-bold text-slate-400 uppercase text-right">Escala Deformación</span>
+                            <input type="range" id="scale" min="1" max="2000" value="800" class="w-32 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="canvas-area shadow-lg" id="canvas-container">
+                    <canvas id="canvas"></canvas>
+                    <div class="absolute bottom-4 left-4 flex gap-2">
+                         <div class="bg-blue-600 text-white px-3 py-1 rounded text-[9px] font-black uppercase">Modo Ultra Zoom</div>
+                         <div class="bg-slate-800/80 backdrop-blur text-white px-3 py-1 rounded text-[9px] font-bold uppercase">Escala: -20% Margen</div>
+                    </div>
+                </div>
+
+                <div id="results" class="grid grid-cols-2 md:grid-cols-4 gap-4 hidden">
+                    <div class="bg-white p-4 rounded-xl border border-slate-200 border-t-4 border-t-slate-800">
+                        <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Max Despl.</p>
+                        <p id="res-def" class="text-xl font-bold font-mono text-slate-800">0.000 m</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl border border-slate-200 border-t-4 border-t-blue-600">
+                        <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Max Tracción</p>
+                        <p id="res-ten" class="text-xl font-bold font-mono text-blue-600">0.00 tf</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl border border-slate-200 border-t-4 border-t-red-600">
+                        <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Max Compr.</p>
+                        <p id="res-com" class="text-xl font-bold font-mono text-red-600">0.00 tf</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl border border-slate-200 border-t-4 border-t-emerald-600">
+                        <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Carga Total</p>
+                        <p id="res-reac" class="text-xl font-bold font-mono text-emerald-600">0.00 tf</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PDF Template -->
+    <div id="pdf-template">
+        <h1 class="text-2xl font-bold border-b-4 border-blue-600 pb-2 mb-6 uppercase tracking-tighter">Memoria Técnica de Tijeral</h1>
+        <div id="pdf-img" class="mb-6 border-4 border-slate-100 rounded-xl overflow-hidden"></div>
+        <div id="pdf-data" class="grid grid-cols-1 gap-6 text-[11px]"></div>
+    </div>
+
+    <script>
+        let nodes = [];
+        let bars = [];
+        let loads = [];
+        let results = null;
+        let activeView = 'geometry';
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        function setTab(name) {
+            ['nodes', 'bars', 'loads'].forEach(t => {
+                const el = document.getElementById(`tab-${t}`);
+                const btn = document.getElementById(`btn-tab-${t}`);
+                if (el) el.classList.toggle('hidden', t !== name);
+                if (btn) {
+                    btn.classList.toggle('tab-active', t === name);
+                    btn.classList.toggle('text-slate-400', t !== name);
+                }
+            });
+            if(name === 'nodes' || name === 'loads') setView('geometry');
+        }
+
+        function setView(name) {
+            activeView = name;
+            ['geometry', 'deflection', 'forces', 'reactions'].forEach(v => {
+                const btn = document.getElementById(`v-${v}`);
+                if (btn) btn.classList.toggle('active', v === name);
+            });
+            draw();
+        }
+
+        function addNode() { nodes.push({x: nodes.length*2, y: 0, fx: false, fy: false}); updateUI(); }
+        function addBar() { bars.push({n1: 0, n2: nodes.length > 1 ? nodes.length-1 : 1}); updateUI(); }
+        function addLoad() { loads.push({node: 0, fx: 0, fy: -10}); updateUI(); }
+
+        function updateUI() {
+            document.getElementById('body-nodes').innerHTML = nodes.map((n, i) => `
+                <tr class="border-b hover:bg-slate-50 transition">
+                    <td class="py-2 text-slate-400 font-mono font-bold">${i}</td>
+                    <td><input type="number" value="${n.x}" step="0.5" onchange="nodes[${i}].x=parseFloat(this.value); draw()"></td>
+                    <td><input type="number" value="${n.y}" step="0.5" onchange="nodes[${i}].y=parseFloat(this.value); draw()"></td>
+                    <td class="flex items-center justify-center gap-1 py-2">
+                        <input type="checkbox" ${n.fx?'checked':''} onchange="nodes[${i}].fx=this.checked; draw()" title="Fijo X">
+                        <input type="checkbox" ${n.fy?'checked':''} onchange="nodes[${i}].fy=this.checked; draw()" title="Fijo Y">
+                    </td>
+                    <td class="text-right"><button onclick="nodes.splice(${i},1); updateUI()" class="text-slate-300 hover:text-red-500 px-2">✕</button></td>
+                </tr>
+            `).join('');
+
+            document.getElementById('body-bars').innerHTML = bars.map((b, i) => `
+                <tr class="border-b hover:bg-slate-50 transition">
+                    <td class="py-2 text-slate-400 font-mono font-bold">${i}</td>
+                    <td><input type="number" value="${b.n1}" onchange="bars[${i}].n1=parseInt(this.value); draw()"></td>
+                    <td><input type="number" value="${b.n2}" onchange="bars[${i}].n2=parseInt(this.value); draw()"></td>
+                    <td class="text-right"><button onclick="bars.splice(${i},1); updateUI()" class="text-slate-300 hover:text-red-500 px-2">✕</button></td>
+                </tr>
+            `).join('');
+
+            document.getElementById('body-loads').innerHTML = loads.map((l, i) => `
+                <tr class="border-b hover:bg-slate-50 transition">
+                    <td class="py-2"><input type="number" value="${l.node}" onchange="loads[${i}].node=parseInt(this.value); draw()"></td>
+                    <td><input type="number" value="${l.fx}" onchange="loads[${i}].fx=parseFloat(this.value); draw()"></td>
+                    <td><input type="number" value="${l.fy}" onchange="loads[${i}].fy=parseFloat(this.value); draw()"></td>
+                    <td class="text-right"><button onclick="loads.splice(${i},1); updateUI()" class="text-slate-300 hover:text-red-500 px-2">✕</button></td>
+                </tr>
+            `).join('');
+            draw();
+        }
+
+        function loadExample() {
+            nodes = [
+                {x:0, y:0, fx:true, fy:true}, {x:4, y:0, fx:false, fy:false}, 
+                {x:8, y:0, fx:false, fy:true}, {x:2, y:2.5, fx:false, fy:false}, {x:6, y:2.5, fx:false, fy:false}
+            ];
+            bars = [
+                {n1:0, n2:1}, {n1:1, n2:2}, {n1:0, n2:3}, {n1:1, n2:3}, 
+                {n1:1, n2:4}, {n1:2, n2:4}, {n1:3, n2:4}
+            ];
+            loads = [{node:3, fx:0, fy:-15}, {node:4, fx:0, fy:-15}];
+            updateUI();
+            calculate();
+        }
+
+        function calculate() {
+            if (nodes.length < 2 || bars.length < 1) return;
+            const E = parseFloat(document.getElementById('prop-e').value);
+            const A = parseFloat(document.getElementById('prop-a').value);
+            const nN = nodes.length, ndof = 2 * nN;
+            
+            let K = math.zeros(ndof, ndof);
+            let F = math.zeros(ndof, 1);
+            loads.forEach(l => { if(l.node < nN) { F.set([2*l.node, 0], l.fx); F.set([2*l.node+1, 0], l.fy); } });
+
+            bars.forEach(b => {
+                const n1 = nodes[b.n1], n2 = nodes[b.n2];
+                const L = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2);
+                if (L === 0) return;
+                const c = (n2.x-n1.x)/L, s = (n2.y-n1.y)/L;
+                const ke = math.multiply((E * A / L), [
+                    [c*c, c*s, -c*c, -c*s], [c*s, s*s, -c*s, -s*s],
+                    [-c*c, -c*s, c*c, c*s], [-c*s, -s*s, c*s, s*s]
+                ]);
+                const d = [2*b.n1, 2*b.n1+1, 2*b.n2, 2*b.n2+1];
+                for(let i=0; i<4; i++) for(let j=0; j<4; j++) K.set([d[i], d[j]], K.get([d[i], d[j]]) + ke[i][j]);
+            });
+
+            let free = [];
+            nodes.forEach((n, i) => { if(!n.fx) free.push(2*i); if(!n.fy) free.push(2*i+1); });
+            if(free.length === 0) return;
+            
+            try {
+                const Kff = free.map(r => free.map(c => K.get([r, c])));
+                const Pf = free.map(dof => F.get([dof, 0]));
+                const Uf = math.lusolve(Kff, Pf);
+                let U = new Array(ndof).fill(0);
+                free.forEach((dof, i) => U[dof] = Uf[i][0]);
+
+                const axial = bars.map(b => {
+                    const n1 = nodes[b.n1], n2 = nodes[b.n2];
+                    const L = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2);
+                    if(L === 0) return 0;
+                    const c = (n2.x-n1.x)/L, s = (n2.y-n1.y)/L;
+                    const u = [U[2*b.n1], U[2*b.n1+1], U[2*b.n2], U[2*b.n2+1]];
+                    return (E*A/L) * (-c*u[0] - s*u[1] + c*u[2] + s*u[3]);
+                });
+
+                const rVec = math.subtract(math.multiply(K, math.transpose([U])), F);
+                let reactions = nodes.map((n, i) => ({ x: n.fx ? rVec.get([2*i, 0]) : 0, y: n.fy ? rVec.get([2*i+1, 0]) : 0 }));
+
+                results = { U, axial, reactions };
+                document.getElementById('results').classList.remove('hidden');
+                document.getElementById('res-def').innerText = Math.max(...U.map(Math.abs)).toFixed(4) + " m";
+                document.getElementById('res-ten').innerText = Math.max(0, ...axial).toFixed(2) + " tf";
+                document.getElementById('res-com').innerText = Math.abs(Math.min(0, ...axial)).toFixed(2) + " tf";
+                document.getElementById('res-reac').innerText = loads.reduce((a, b) => a + Math.abs(b.fy), 0).toFixed(2) + " tf";
+                draw();
+            } catch(e) { console.error(e); }
+        }
+
+        function draw() {
+            const container = document.getElementById('canvas-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if(nodes.length === 0) {
+                ctx.fillStyle = "#94a3b8";
+                ctx.font = "14px Inter";
+                ctx.textAlign = "center";
+                ctx.fillText("Sin datos. Presione 'Cargar Ejemplo' o añada nodos.", canvas.width/2, canvas.height/2);
+                return;
+            }
+
+            // Ajuste de escala con margen
+            const margin = 0.25; 
+            const xs = nodes.map(n => n.x);
+            const ys = nodes.map(n => n.y);
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(...ys), maxY = Math.max(...ys);
+            
+            const rangeX = (maxX - minX) || 1;
+            const rangeY = (maxY - minY) || 1;
+
+            const availW = canvas.width * (1 - 2 * margin);
+            const availH = canvas.height * (1 - 2 * margin);
+            
+            const scale = Math.min(availW / rangeX, availH / rangeY);
+
+            const offsetX = (canvas.width - rangeX * scale) / 2 - minX * scale;
+            const offsetY = (canvas.height - rangeY * scale) / 2 - minY * scale;
+
+            const tx = (x) => offsetX + x * scale;
+            const ty = (y) => canvas.height - (offsetY + y * scale); 
+            const sDef = parseFloat(document.getElementById('scale').value);
+
+            // --- 1. CAPA: GEOMETRÍA ORIGINAL (DASHED) ---
+            ctx.setLineDash([8, 4]); 
+            ctx.strokeStyle = '#e2e8f0'; 
+            ctx.lineWidth = 1.5;         
+            bars.forEach(b => {
+                if(!nodes[b.n1] || !nodes[b.n2]) return;
+                ctx.beginPath(); 
+                ctx.moveTo(tx(nodes[b.n1].x), ty(nodes[b.n1].y));
+                ctx.lineTo(tx(nodes[b.n2].x), ty(nodes[b.n2].y)); 
+                ctx.stroke();
+            });
+            ctx.setLineDash([]);
+
+            // --- 2. CAPA: BARRAS ACTUALES ---
+            bars.forEach((b, i) => {
+                if(!nodes[b.n1] || !nodes[b.n2]) return;
+                const isGeo = activeView === 'geometry';
+                const x1 = tx(nodes[b.n1].x + (results && !isGeo?results.U[2*b.n1]*sDef:0));
+                const y1 = ty(nodes[b.n1].y + (results && !isGeo?results.U[2*b.n1+1]*sDef:0));
+                const x2 = tx(nodes[b.n2].x + (results && !isGeo?results.U[2*b.n2]*sDef:0));
+                const y2 = ty(nodes[b.n2].y + (results && !isGeo?results.U[2*b.n2+1]*sDef:0));
+
+                ctx.lineWidth = 6;
+                ctx.lineCap = 'round';
+                
+                if(activeView === 'forces' && results) {
+                    const f = results.axial[i];
+                    ctx.strokeStyle = f > 0.01 ? '#2563eb' : (f < -0.01 ? '#dc2626' : '#94a3b8');
+                    ctx.font = 'bold 12px Fira Code'; ctx.fillStyle = ctx.strokeStyle;
+                    ctx.fillText(f.toFixed(2), (x1+x2)/2 + 10, (y1+y2)/2);
+                } else if(activeView === 'deflection') {
+                    ctx.strokeStyle = '#3b82f6';
+                } else if(activeView === 'geometry') {
+                    ctx.strokeStyle = '#94a3b8'; // Color más ligero para geometría para no tapar nodos
+                } else {
+                    ctx.strokeStyle = '#1e293b';
+                }
+                
+                ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+            });
+
+            // --- 3. CAPA: CARGAS Y REACCIONES ---
+            if(activeView === 'reactions' && results) {
+                results.reactions.forEach((r, i) => {
+                    const x = tx(nodes[i].x), y = ty(nodes[i].y);
+                    if(Math.abs(r.x)>0.01) drawArrow(x - (r.x>0?40:-40), y, x, y, '#10b981', r.x.toFixed(2));
+                    if(Math.abs(r.y)>0.01) drawArrow(x, y + (r.y>0?40:-40), x, y, '#10b981', r.y.toFixed(2));
+                });
+            }
+
+            if(activeView === 'geometry') {
+                loads.forEach(l => {
+                    const n = nodes[l.node]; if(!n) return;
+                    const x = tx(n.x), y = ty(n.y);
+                    if(l.fx !== 0) drawArrow(x - (l.fx>0?50:-50), y, x, y, '#f43f5e', `${l.fx} tf`);
+                    if(l.fy !== 0) drawArrow(x, y - (l.fy>0?50:-50), x, y, '#f43f5e', `${l.fy} tf`);
+                });
+            }
+
+            // --- 4. CAPA: NODOS (SIEMPRE AL FINAL) ---
+            nodes.forEach((n, i) => {
+                const isGeo = activeView === 'geometry';
+                const x = tx(n.x + (results && !isGeo ? results.U[2*i]*sDef : 0));
+                const y = ty(n.y + (results && !isGeo ? results.U[2*i+1]*sDef : 0));
+                
+                // Soportes
+                if(n.fx || n.fy) {
+                    ctx.fillStyle = '#64748b'; ctx.beginPath();
+                    ctx.rect(tx(n.x)-12, ty(n.y)+2, 24, 6); ctx.fill();
+                }
+
+                // Círculo del nodo (con borde blanco para visibilidad total)
+                ctx.fillStyle = (activeView === 'deflection' && results) ? '#3b82f6' : '#0f172a';
+                ctx.beginPath(); 
+                ctx.arc(x, y, 7, 0, Math.PI*2); 
+                ctx.fill();
+                
+                ctx.strokeStyle = '#ffffff'; 
+                ctx.lineWidth = 2.5; 
+                ctx.stroke();
+                
+                // Etiqueta de ID
+                ctx.fillStyle = '#334155'; 
+                ctx.font = 'bold 11px Inter'; 
+                ctx.textAlign = "left";
+                ctx.fillText(i, x + 10, y - 10);
+            });
+        }
+
+        function drawArrow(fx, fy, tx, ty, color, label) {
+            const headlen = 10;
+            const angle = Math.atan2(ty - fy, tx - fx);
+            ctx.strokeStyle = color; 
+            ctx.fillStyle = color; 
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(fx, fy);
+            ctx.lineTo(tx, ty);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(tx, ty);
+            ctx.lineTo(tx - headlen * Math.cos(angle - Math.PI / 6), ty - headlen * Math.sin(angle - Math.PI / 6));
+            ctx.lineTo(tx - headlen * Math.cos(angle + Math.PI / 6), ty - headlen * Math.sin(angle + Math.PI / 6));
+            ctx.closePath();
+            ctx.fill();
+            ctx.font = 'bold 11px Fira Code'; 
+            ctx.textAlign = 'center';
+            ctx.fillText(label, fx, fy - 8);
+        }
+
+        async function exportToPDF() {
+            const { jsPDF } = window.jspdf;
+            const imgArea = document.getElementById('pdf-img');
+            imgArea.innerHTML = `<img src="${canvas.toDataURL()}" style="width:100%">`;
+            document.getElementById('pdf-data').innerHTML = `<p class="p-4 bg-slate-100 rounded">Análisis finalizado con ${nodes.length} nodos y ${bars.length} barras.</p>`;
+            const pdfNode = document.getElementById('pdf-template');
+            const canvasCap = await html2canvas(pdfNode, { scale: 2 });
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            pdf.addImage(canvasCap.toDataURL('image/png'), 'PNG', 10, 10, 190, (canvasCap.height*190)/canvasCap.width);
+            pdf.save(`Calculo_Tijeral.pdf`);
+        }
+
+        window.onload = () => {
+            loadExample();
+            window.addEventListener('resize', draw);
+            document.getElementById('scale').addEventListener('input', draw);
+        };
+    </script>
+</body>
+</html>
